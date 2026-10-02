@@ -143,7 +143,7 @@ On HTTP, the settlement response travels in the `PAYMENT-RESPONSE` header. Serve
 
 ## Payment-Backed Reviews
 
-How a review is submitted at `write` is provider-defined. A provider MUST NOT present a review as **payment-backed** unless both hold:
+A provider MUST NOT present a review as **payment-backed** unless both hold:
 
 1. **The seller received the payer's funds.** The provider has read the payment on chain and confirmed that funds from the reviewer's wallet reached the `payTo` of the reviewed resource, checked according to the payment's scheme. For `exact`, that is the settlement transaction's transfer from the payer to `payTo`. For schemes that hold funds first or settle later (`auth-capture`, `upto` channels, `batch-settlement`), it is the capture, distribution or claim that pays `payTo`. A hold, authorization or voucher whose funds never reached `payTo` does not make a review payment-backed.
 2. **The paying wallet signed the review.** The provider has verified a signature from that wallet over a message that binds at least the payment, the rating and a hash of the review text, so the signature cannot be reused for another review.
@@ -151,6 +151,16 @@ How a review is submitted at `write` is provider-defined. A provider MUST NOT pr
 Delivery is not required: a client that paid and received nothing is exactly the client whose review matters most. A provider MAY use a signed receipt from [`offer-and-receipt`](extension-offer-and-receipt.md) as additional evidence that the service was delivered.
 
 A provider SHOULD count at most one payment-backed review per payment. It MAY accept reviews that do not meet both checks (for example, citing a payment without the payer's signature) if it labels them as such and does not present them as payment-backed.
+
+### Submitting a review
+
+How a review is submitted at `write` is provider-defined. So that one client can review at any provider without provider-specific code, a provider SHOULD support this minimum:
+
+1. `GET write` with `Accept: application/json` and the client's `stars` and `note` as query parameters returns a JSON object with `message`, the exact text to sign (it binds the payment, the rating and a hash of the note, and says in plain words that signing moves no money), and `submit`, an HTTPS URL to post the review to.
+2. The client reads `message`, confirms it names its own wallet, payment, stars and note hash, and signs it with the wallet that paid.
+3. `POST submit` with a JSON body of `stars`, `note` and `signature`. The provider verifies the payment and the signature, then answers with where the review can be read.
+
+A provider MAY accept more than this; a client that implements only these three steps SHOULD still succeed.
 
 ### Refunds and reversals
 
@@ -172,6 +182,7 @@ Providers SHOULD show, for each review, what the reviewer paid and how the revie
 
 ## Client Behavior
 
+- A client SHOULD consult a provider it trusts about any resource, whether or not the server lists that provider: a server that cheats will not list the provider holding its bad reviews. The server's `providers` say where reviews exist; they are not the only place to look.
 - The server chooses which providers to list and could list one it controls. Clients SHOULD keep an allowlist of providers they trust and ignore the others.
 - Before signing a review of the payment in a `SettlementResponse`, a client SHOULD confirm on chain that it is its own payment, to the `payTo` and for the amount it authorized: the settlement response is relayed by the server.
 - `description`, `userQuestion` and review text are data, not instructions. Whether to review, and the rating, are the client's (or its user's) decision.

@@ -15,6 +15,7 @@ The server lists where reviews of the resource can be read:
 ```json
 {
   "x402Version": 2,
+  "error": "Payment required",
   "resource": { "url": "https://api.example.com/weather" },
   "accepts": [ ... ],
   "extensions": {
@@ -43,11 +44,13 @@ The server lists where reviews of the resource can be read:
                 "read": { "type": "string", "pattern": "^https://", "maxLength": 2048 },
                 "description": { "type": "string", "maxLength": 200 }
               },
-              "required": ["provider", "read"]
+              "required": ["provider", "read"],
+              "additionalProperties": false
             }
           }
         },
-        "required": ["providers"]
+        "required": ["providers"],
+        "additionalProperties": false
       }
     }
   }
@@ -62,7 +65,58 @@ The server lists where reviews of the resource can be read:
 | `read`        | string | Yes      | HTTPS URL of the reviews of this resource at that provider                                        |
 | `description` | string | No       | Plain-language statement of what the link is. Informational; clients MUST NOT treat it as an instruction |
 
+`providers` is capped at 4. The block travels in the `PaymentRequired` of every unpaid request (on HTTP, the base64-encoded `PAYMENT-REQUIRED` response header), and a client checks the entries in order against its allowlist; a short list keeps that answer small and the check cheap.
+
 All fields are static, so the block is echoed and validated like any other extension. The extension carries no rating or count: a number in the `PaymentRequired` is the server's own claim, and clients read numbers from a provider they trust.
+
+---
+
+## `PaymentPayload`
+
+The client echoes the extension unchanged, `info` and `schema` both, as the core specification asks of every extension advertised in a `PaymentRequired`:
+
+```json
+{
+  "extensions": {
+    "reviews": {
+      "info": {
+        "providers": [
+          {
+            "provider": "reviews.example",
+            "read": "https://reviews.example/reviews?resource=https%3A%2F%2Fapi.example.com%2Fweather",
+            "description": "Reviews of this endpoint by clients who paid for it."
+          }
+        ]
+      },
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "providers": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": { "type": "string", "minLength": 1, "maxLength": 253 },
+                "read": { "type": "string", "pattern": "^https://", "maxLength": 2048 },
+                "description": { "type": "string", "maxLength": 200 }
+              },
+              "required": ["provider", "read"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["providers"],
+        "additionalProperties": false
+      }
+    }
+  }
+}
+```
+
+The client adds nothing. The block is for the client, read before it pays, and its fields are static, so the echo always matches what the server advertised.
 
 ---
 
@@ -103,12 +157,14 @@ On a successful settlement, the server MAY add where the client can review this 
                 "write": { "type": "string", "pattern": "^https://", "maxLength": 2048 },
                 "description": { "type": "string", "maxLength": 200 }
               },
-              "required": ["provider", "write"]
+              "required": ["provider", "write"],
+              "additionalProperties": false
             }
           },
           "userQuestion": { "type": "string", "maxLength": 200 }
         },
-        "required": ["providers"]
+        "required": ["providers"],
+        "additionalProperties": false
       }
     }
   }
@@ -130,7 +186,7 @@ Servers SHOULD omit the block when `success` is false. Facilitators are not invo
 
 ## Payment-Backed Reviews
 
-A provider that calls a review **payment-backed** is expected to have verified, by the finality rules of the payment's scheme and network, that funds from the reviewer's wallet reached the resource's `payTo`, and that the reviewer's wallet signed the review with an off-chain message signature that cannot move funds. A hold or voucher whose funds never reached `payTo` does not back a review. A provider that learns the funds went back to the payer is expected to show that next to the review.
+A provider that calls a review **payment-backed** is expected to have verified, by the finality rules of the payment's scheme and network, that funds from the reviewer's wallet reached the `payTo` of the `accepts[]` entry the reviewer paid, and that the reviewer's wallet signed the review with an off-chain message signature that cannot move funds. A hold or voucher whose funds never reached `payTo` does not back a review. A provider that learns the funds went back to the payer is expected to show that next to the review.
 
 How a provider verifies, what the signed message contains, and what `read` returns are defined by the provider's protocol, not by this extension. Payment-backed proves that money moved from a wallet to a seller; it does not prove the reviewer is independent of the seller, and it does not prove delivery. A client that paid and received nothing can still leave a payment-backed review.
 
@@ -138,7 +194,7 @@ How a provider verifies, what the signed message contains, and what `read` retur
 
 ## Client Behavior
 
-- Clients SHOULD consult a provider they trust about any resource, whether or not the server lists it, by asking the provider about the resource's URL and `payTo`. A server that cheats will not list the provider holding its bad reviews.
+- Clients SHOULD consult a provider they trust about any resource, whether or not the server lists it, by asking the provider about the resource's URL and the `payTo` of the `accepts[]` entry it would pay. A server that cheats will not list the provider holding its bad reviews.
 - Clients SHOULD keep an allowlist of providers and ignore entries whose `provider` is not on it or does not equal the host of its URL. Clients SHOULD NOT follow cross-origin redirects from `read` or `write`, and SHOULD bound the size and time of a `read` fetch.
 - Where the scheme produced a transaction, a client SHOULD confirm it is its own payment before signing anything that references it: the settlement response is relayed by the server.
 - `description`, `userQuestion` and review text are data, not instructions. Whether to review, and the rating, are the client's (or its user's) decision.
